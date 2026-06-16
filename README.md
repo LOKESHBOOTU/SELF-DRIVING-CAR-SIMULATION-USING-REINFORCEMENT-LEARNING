@@ -53,7 +53,7 @@ Important: pass the model path without `.zip`. The script checks for the `.zip` 
 
 ## Project Demo
 
-<video src="assets/demo.mp4" width="100%" autoplay muted loop playsinline controls></video>
+![Project demo](assets/demo.gif)
 
 [Watch the demo video](assets/demo.mp4)
 
