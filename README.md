@@ -1,179 +1,332 @@
-# CarRacing-v2 PPO — Full Implementation
+# Self-Driving Car Simulation Using Reinforcement Learning
 
-A complete Reinforcement Learning project that trains a PPO agent to drive a car
-in OpenAI Gymnasium's CarRacing-v2 environment using pixel observations.
+A Python, Gymnasium, and Stable-Baselines3 based project that trains a reinforcement learning agent to drive a car in the `CarRacing-v2` environment. The project uses the PPO algorithm with image observations, frame stacking, custom wrappers, TensorBoard logging, checkpoints, and a saved trained model for evaluation.
 
----
+## What Is Self-Driving Car Simulation Using Reinforcement Learning
 
-## Project Structure
+Self-driving car simulation using reinforcement learning is the process of training an agent to control a vehicle inside a simulated driving environment. The agent observes the road as image frames, takes driving actions, receives rewards, and gradually learns better driving behavior through trial and error.
 
-```
-car_racing_rl/
-├── train.py          # Main training script
-├── evaluate.py       # Load & evaluate / record trained agent
-├── config.py         # All hyperparameters & presets
-├── wrappers.py       # Custom Gymnasium wrappers
-├── requirements.txt  # Dependencies
-│
-├── checkpoints/      # (created on run) periodic .zip saves
-├── models/best/      # (created on run) best model by eval reward
-├── logs/
-│   ├── tensorboard/  # TensorBoard training curves
-│   └── eval/         # Evaluation logs
-└── videos/           # Recorded episodes
-```
+This project focuses on:
 
----
-
-## Setup
-
-```bash
-# 1. Create a virtual environment
-python -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-
-# 2. Install dependencies
-pip install -r requirements.txt
-
-# 3. (macOS) Install swig for Box2D
-brew install swig
-
-# 4. Verify installation
-python -c "import gymnasium; import stable_baselines3; print('OK')"
-```
-
----
-
-## Training
-
-```bash
-# Train with default config (2M steps, 8 parallel envs)
-python train.py
-
-# Quick smoke test — verifies setup runs without errors (~1 min)
-python train.py --timesteps 10000 --n-envs 2
-
-# Resume from latest checkpoint
-python train.py --resume
-
-# Resume from a specific checkpoint
-python train.py --model-path checkpoints/ppo_car_racing_500000_steps
-
-# Train for longer
-python train.py --timesteps 5000000
-```
-
-**Monitor training in TensorBoard:**
-```bash
-tensorboard --logdir logs/tensorboard
-# Open http://localhost:6006
-```
-
-Key metrics to watch:
-- `rollout/ep_rew_mean` — average episode reward (target: 900+)
-- `train/policy_gradient_loss` — should decrease and stabilise
-- `train/entropy_loss` — should stay slightly negative (exploration)
-
----
-
-## Evaluation
-
-```bash
-# Evaluate best saved model (10 episodes, silent)
-python evaluate.py
-
-# Watch the agent drive live
-python evaluate.py --render --episodes 5
-
-# Record videos of 10 episodes
-python evaluate.py --record --episodes 10
-
-# Verbose per-episode output
-python evaluate.py --verbose --episodes 20
-
-# Evaluate a specific checkpoint
-python evaluate.py --model checkpoints/ppo_car_racing_1000000_steps
-```
-
----
-
-## CarRacing-v2 Scoring Guide
-
-| Mean Reward | Interpretation                          |
-|-------------|-----------------------------------------|
-| < 0         | Agent is stuck or driving backwards     |
-| 100–300     | Learning to stay on track               |
-| 300–600     | Competent driving, some corners missed  |
-| 600–800     | Good performance, most laps completed   |
-| 800–900     | Excellent, near-expert                  |
-| 900+        | **Solved** (human-level benchmark)      |
-
----
+- Training a PPO agent on the Gymnasium `CarRacing-v2` environment
+- Using pixel-based observations instead of hand-written driving rules
+- Saving checkpoints and the best trained model
+- Evaluating the saved model with terminal, render, or video output
+- Viewing training progress through TensorBoard logs
 
 ## How It Works
 
-### Environment
-- **Observation**: 96×96 RGB image → grayscaled → resized to 84×84 → stacked 4 frames
-- **Action space**: Continuous 3D vector `[steering, gas, brake]` ∈ [-1, 1]
-- **Reward**: +1000/N per track tile visited (N = total tiles), -0.1 per frame
+1. The `CarRacing-v2` environment generates a road track and car state.
+2. Image observations are converted to grayscale and resized to `84x84`.
+3. Four frames are stacked so the model can understand motion.
+4. PPO learns continuous driving actions: steering, gas, and brake.
+5. Training checkpoints, evaluation logs, and the best model are saved.
+6. `evaluate.py` loads a saved model and runs it in the simulator.
 
-### Wrappers (applied in order)
-1. `CarRacingWrapper` — skips zoom animation, early-stops stuck episodes, clips rewards
-2. `GrayScaleObservation` — 3-channel RGB → 1-channel gray (3× fewer pixels)
-3. `ResizeObservation` — 96×96 → 84×84 (standard DRL input size)
-4. `VecFrameStack(n=4)` — stacks 4 frames so agent can infer velocity
-5. `VecTransposeImage` — reorders axes for SB3's CNN policy
+## Saved Model Demo
 
-### PPO Algorithm
-PPO (Proximal Policy Optimisation) clips the policy update ratio to prevent
-destructively large updates. The key equation:
+The repository includes a saved best model at:
 
-```
-L_clip = E[ min(r_t * A_t,  clip(r_t, 1-ε, 1+ε) * A_t) ]
+```text
+models/best/best_model.zip
 ```
 
-Where `r_t = π_new(a|s) / π_old(a|s)` and ε = 0.2 (clip_range).
+Run the saved model in the terminal:
 
-### CNN Policy Architecture
-```
-Input: (4, 84, 84) — 4 stacked grayscale frames
-
-NatureCNN (default SB3 extractor):
-  Conv2d(4→32,  kernel=8, stride=4)  → ReLU
-  Conv2d(32→64, kernel=4, stride=2)  → ReLU
-  Conv2d(64→64, kernel=3, stride=1)  → ReLU
-  Flatten → Linear(3136→256)         → ReLU
-
-Actor head:  Linear(256→64) → ReLU → Linear(64→3)  [mean of action distribution]
-Critic head: Linear(256→64) → ReLU → Linear(64→1)  [state value V(s)]
+```bash
+python evaluate.py --model models/best/best_model --episodes 1 --verbose
 ```
 
----
+Watch the trained car drive visually:
 
-## Tuning Tips
+```bash
+python evaluate.py --model models/best/best_model --render --episodes 5
+```
 
-**Agent not improving after 500K steps?**
-- Increase `ent_coef` to 0.05–0.1 to encourage more exploration
-- Try a lower `learning_rate` (1e-4)
+Record evaluation videos:
 
-**Agent drives in circles?**
-- Check that `skip_frames=50` is working (zoom animation skipped)
-- Increase `max_negative_steps` penalty sensitivity
+```bash
+python evaluate.py --model models/best/best_model --record --episodes 5
+```
 
-**Training is too slow?**
-- Reduce `n_envs` to match your CPU core count
-- Use `PRESETS["cpu"]` in config.py
+Important: pass the model path without `.zip`. The script checks for the `.zip` file automatically.
 
-**Want faster convergence?**
-- Use `ActionRepeatWrapper(env, n_repeat=4)` — reduces decision frequency
-- Pre-train with a smaller environment first
+## Sample Output
 
----
+Example terminal output from a one-episode evaluation:
 
-## Dependencies
+```text
+Episode   1/1  |  reward=   10.3  steps= 271
 
-See `requirements.txt`. Main packages:
-- `gymnasium[box2d]` — environment
-- `stable-baselines3[extra]` — PPO implementation
-- `torch` — neural network backend
-- `tensorboard` — training visualisation
+Mean: 10.30 +/- 0.00
+Best: 10.30   Worst: 10.30
+```
+
+Scores can vary between runs because the environment can generate different tracks.
+
+## Features
+
+- PPO reinforcement learning agent
+- Gymnasium `CarRacing-v2` simulation
+- CNN policy for image-based driving
+- Frame stacking for motion awareness
+- Custom environment wrapper for reward clipping and early stopping
+- Training checkpoints
+- Best model saving
+- TensorBoard training logs
+- Terminal evaluation output
+- Visual render mode
+- Video recording support
+
+## Applications
+
+- Learning reinforcement learning concepts
+- Understanding PPO for continuous control tasks
+- Experimenting with image-based autonomous driving
+- Testing reward shaping and environment wrappers
+- Comparing training runs through TensorBoard
+- Demonstrating self-driving behavior in a simulator
+
+## Why This Project Is Useful
+
+- Shows how reinforcement learning can control a simulated vehicle
+- Provides a ready-to-run trained model
+- Includes both training and evaluation scripts
+- Helps visualize RL training progress with TensorBoard
+- Gives a practical base for improving autonomous driving experiments
+
+## Project Structure
+
+```text
+SELF-DRIVING CAR SIMULATION USING REINFORCEMENT LEARNING/
+|-- train.py                 # Train PPO agent
+|-- evaluate.py              # Evaluate or render a saved model
+|-- config.py                # Training hyperparameters and paths
+|-- wrappers.py              # Custom Gymnasium environment wrappers
+|-- requirements.txt         # Python dependencies
+|-- README.md                # Project documentation
+|-- .gitignore               # Files and folders ignored by git
+|-- models/
+|   `-- best/
+|       `-- best_model.zip   # Saved trained model
+|-- checkpoints/             # Generated training checkpoints
+|-- logs/
+|   |-- tensorboard/         # TensorBoard event files
+|   `-- eval/                # Evaluation logs
+`-- videos/                  # Recorded evaluation videos
+```
+
+## Requirements
+
+- Python 3.10 or later
+- pip
+- A virtual environment is recommended
+- GPU is optional; CPU also works
+
+Main Python packages:
+
+- Gymnasium
+- Box2D
+- Pygame
+- Stable-Baselines3
+- Torch
+- TensorBoard
+- OpenCV
+- NumPy
+- tqdm
+
+## Installation
+
+Create and activate a virtual environment:
+
+```bash
+python -m venv venv
+venv\Scripts\activate
+```
+
+Install dependencies:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+Verify the installation:
+
+```bash
+python -c "import gymnasium; import stable_baselines3; print('OK')"
+```
+
+If Box2D installation fails on macOS or Linux, install SWIG first and then run the requirements command again.
+
+## Run Locally
+
+Run the saved trained model:
+
+```bash
+python evaluate.py --model models/best/best_model --episodes 1 --verbose
+```
+
+Run with visual output:
+
+```bash
+python evaluate.py --model models/best/best_model --render --episodes 5
+```
+
+Run with video recording:
+
+```bash
+python evaluate.py --model models/best/best_model --record --episodes 5
+```
+
+Recorded videos are saved in:
+
+```text
+videos/eval/
+```
+
+## View Training Logs
+
+Start TensorBoard:
+
+```bash
+tensorboard --logdir logs/tensorboard
+```
+
+Then open this URL in your browser:
+
+[http://localhost:6006](http://localhost:6006)
+
+Important metrics to watch:
+
+- `rollout/ep_rew_mean`
+- `train/policy_gradient_loss`
+- `train/value_loss`
+- `train/entropy_loss`
+- `eval/mean_reward`
+
+## Train The Model
+
+Start a small training run:
+
+```bash
+python train.py --timesteps 100000 --n-envs 2
+```
+
+Train with the default configuration:
+
+```bash
+python train.py
+```
+
+Resume from the latest checkpoint:
+
+```bash
+python train.py --resume
+```
+
+Resume from a specific checkpoint:
+
+```bash
+python train.py --model-path checkpoints/ppo_car_20260430_232828_final
+```
+
+Training creates or updates:
+
+- `checkpoints/`
+- `models/best/best_model.zip`
+- `logs/tensorboard/`
+- `logs/eval/`
+
+## Evaluation Options
+
+Evaluate the best saved model:
+
+```bash
+python evaluate.py
+```
+
+Evaluate with per-episode terminal output:
+
+```bash
+python evaluate.py --verbose --episodes 5
+```
+
+Evaluate a checkpoint:
+
+```bash
+python evaluate.py --model checkpoints/ppo_car_20260430_232828_final --episodes 5
+```
+
+Render the checkpoint:
+
+```bash
+python evaluate.py --model checkpoints/ppo_car_20260430_232828_final --render --episodes 5
+```
+
+## PPO Algorithm
+
+PPO stands for Proximal Policy Optimization. It is a reinforcement learning algorithm that updates the policy gradually so the agent does not change its behavior too aggressively after each batch of experience.
+
+In this project:
+
+- The policy receives stacked grayscale image frames
+- The actor predicts driving actions
+- The critic estimates how good the current state is
+- PPO improves the policy using clipped updates
+- The best model is selected through evaluation reward
+
+## Scoring Guide
+
+| Mean Reward | Interpretation |
+| --- | --- |
+| Less than 0 | Agent is stuck or driving backward |
+| 100 to 300 | Learning to stay on track |
+| 300 to 600 | Competent driving with missed corners |
+| 600 to 800 | Good performance |
+| 800 to 900 | Excellent performance |
+| 900+ | Solved benchmark level |
+
+## Tech Stack
+
+- Python
+- Gymnasium
+- Box2D
+- Pygame
+- Stable-Baselines3
+- PyTorch
+- TensorBoard
+- OpenCV
+- NumPy
+
+## Future Scope
+
+- Improve reward shaping for smoother driving
+- Train for more timesteps to improve performance
+- Add custom driving tracks
+- Add a web interface for model evaluation
+- Compare PPO with SAC or TD3
+- Add more visual result examples
+- Add automated evaluation reports
+- Tune hyperparameters for better scores
+
+## Limitations
+
+- Training can take a long time on CPU
+- Results depend on random tracks and training duration
+- Rendering requires a working display environment
+- Box2D installation can require extra system dependencies
+- The included saved model may not represent a fully solved driving agent
+
+## Conclusion
+
+This project demonstrates how reinforcement learning can be used to train a simulated self-driving car from visual observations. It provides a complete workflow for installing dependencies, training a PPO agent, viewing logs, saving models, and evaluating the trained driver.
+
+## Notes
+
+- Do not upload `venv/` or `.venv/`
+- Do not upload `__pycache__/`
+- Do not upload training logs unless they are intentionally needed
+- Do not upload generated videos unless they are intentionally needed
+- Install dependencies from `requirements.txt` after cloning
+- Use model paths without `.zip` when running `evaluate.py --model`
