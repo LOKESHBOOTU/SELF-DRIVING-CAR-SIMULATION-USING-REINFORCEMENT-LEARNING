@@ -51,6 +51,12 @@ python evaluate.py --model models/best/best_model --record --episodes 5
 
 Important: pass the model path without `.zip`. The script checks for the `.zip` file automatically.
 
+## Project Demo
+
+<video src="assets/demo.mp4" width="100%" autoplay muted loop playsinline controls></video>
+
+[Watch the demo video](assets/demo.mp4)
+
 ## Sample Output
 
 Example terminal output from a one-episode evaluation:
